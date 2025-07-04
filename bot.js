@@ -494,7 +494,10 @@ async function handlePickCommand(interaction) {
     
     const heroName = interaction.options.getString('hero');
     const availableHeroes = session.getAvailableHeroes();
-    const matchedHero = availableHeroes.find(hero => hero.toLowerCase().includes(heroName.toLowerCase()) || heroName.toLowerCase().includes(hero.toLowerCase()));
+    const matchedHero = availableHeroes.find(hero => 
+        hero.toLowerCase().includes(heroName.toLowerCase()) || 
+        heroName.toLowerCase().includes(hero.toLowerCase())
+    );
     
     if (!matchedHero) {
         await interaction.reply({ content: `Hero "${heroName}" not found or already drafted.`, ephemeral: true });
@@ -508,33 +511,20 @@ async function handlePickCommand(interaction) {
     const response = { embeds: [embed] };
     if (actionRow) response.components = [actionRow];
     
-    try {
-        await interaction.editReply(response);
-    } catch (error) {
-        await interaction.reply(response);
-    }
+    // Respond immediately to avoid timeout
+    await interaction.reply(response);
     
     if (session.isComplete()) {
-        setTimeout(async () => {
-            const finalEmbed = createDraftEmbed(session);
-            const finalResponse = { embeds: [finalEmbed] };
-            try {
-                await interaction.editReply(finalResponse);
-                console.log('Final draft summary displayed after player pick');
-            } catch (error) {
-                console.error('Failed to show final summary after player pick:', error);
-            }
-            setTimeout(() => {
-                draftSessions.delete(channelId);
-                draftMessages.delete(channelId);
-                console.log(`Draft completed and cleaned up for channel: ${channelId}`);
-            }, 10000);
-        }, 1000);
+        setTimeout(() => {
+            draftSessions.delete(channelId);
+            draftMessages.delete(channelId);
+            console.log(`Draft completed and cleaned up for channel: ${channelId}`);
+        }, 10000);
         return;
     }
     
     if (!session.isPlayerTurn() && !session.isComplete()) {
-        setTimeout(() => processAITurn(interaction, session), 2000);
+        setTimeout(() => processAITurn(interaction, session), 1500);
     }
 }
 
@@ -648,39 +638,24 @@ async function processAITurn(interaction, session) {
         if (actionRow) response.components = [actionRow];
         
         try {
-            await interaction.editReply(response);
+            // Use followUp instead of editReply for AI turns to avoid timeout
+            await interaction.followUp(response);
         } catch (error) {
-            console.error('Failed to edit reply during AI turn:', error);
-            try {
-                await interaction.followUp(response);
-            } catch (followError) {
-                console.error('Failed to follow up:', followError);
-            }
+            console.error('Failed to follow up during AI turn:', error);
         }
         
         if (session.isComplete()) {
-            setTimeout(async () => {
-                const finalEmbed = createDraftEmbed(session);
-                const finalResponse = { embeds: [finalEmbed] };
-                try {
-                    await interaction.editReply(finalResponse);
-                    console.log('Final draft summary displayed after AI pick');
-                } catch (error) {
-                    console.error('Failed to show final summary after AI pick:', error);
-                }
-                setTimeout(() => {
-                    draftSessions.delete(interaction.channelId);
-                    draftMessages.delete(interaction.channelId);
-                    console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
-                }, 10000);
-            }, 1000);
+            // Clean up after completion
+            setTimeout(() => {
+                draftSessions.delete(interaction.channelId);
+                draftMessages.delete(interaction.channelId);
+                console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
+            }, 10000);
             return;
         }
         
         if (!session.isPlayerTurn() && !session.isComplete()) {
-            setTimeout(() => processAITurn(interaction, session), 2000);
-        } else if (session.isPlayerTurn() && !session.isComplete()) {
-            console.log(`Waiting for player turn: ${session.getCurrentTeam()}`);
+            setTimeout(() => processAITurn(interaction, session), 1500);
         }
     }
 }
