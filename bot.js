@@ -801,6 +801,6 @@ async function processAITurn(interaction, session) {
 }
 
 // Replace 'YOUR_BOT_TOKEN' with your actual bot token
-client.login('YOUR_BOT_TOKEN');
+client.login(process.env.DISCORD_TOKEN);
 
 module.exports = { client, DraftSession };
