@@ -10,10 +10,10 @@ const client = new Client({
 });
 
 // Game data from the original app
+// Banned heroes
 const bannedHeroes = [
     'Maria Hill - Leadership', 'Cyclops - Leadership', 'Cable - Leadership',
     'Doctor Strange - Protection', 'Adam Warlock', 'Gamora - Aggression'
-];
 
 const draftOrder = [
     // Ludicrously Powerful
@@ -39,6 +39,12 @@ const draftOrder = [
     // Sometimes Powerful
     'Hawkeye - Leadership', 'Groot - Protection', 'Valkyrie - Aggression', 'Hulk - Aggression'
 ];
+
+// Helper function to check if channel is allowed
+function isChannelAllowed(channelId) {
+    if (!ENABLE_CHANNEL_RESTRICTIONS) return true;
+    return ALLOWED_CHANNELS.includes(channelId);
+}
 
 // Filter out banned heroes
 const filteredDraftOrder = draftOrder.filter(hero => !isHeroBanned(hero));
@@ -252,7 +258,8 @@ class DraftSession {
             if (this.currentTurnIndex < 0) {
                 this.currentRound = 3;
                 this.isActive = false;
-                // Mark session as complete - it will be cleaned up automatically
+                // Draft is now complete - the summary will be shown in the next update
+                console.log('Draft completed, moving to summary display');
             }
         }
     }
@@ -450,50 +457,111 @@ function createDraftEmbed(session) {
         inline: false
     });
     
-    // Only show hero lists if draft is not complete
-    if (!session.isComplete()) {
-        // Show bot priority heroes (available ones from the tier list)
+    // Show hero lists based on draft status
+    if (session.isComplete()) {
+        // Draft complete - show comprehensive summary
+        const undraftedHeroes = session.getUndraftedHeroes();
+        const excludedHeroes = session.getExcludedHeroes();
+        
+        // Show undrafted heroes (were in pool but not picked)
+        if (undraftedHeroes.length > 0) {
+            const chunkSize = 20;
+            for (let i = 0; i < undraftedHeroes.length; i += chunkSize) {
+                const chunk = undraftedHeroes.slice(i, i + chunkSize);
+                const fieldName = i === 0 ? 
+                    `📋 Undrafted Heroes (${undraftedHeroes.length} total)` : 
+                    `📋 Undrafted Heroes (continued)`;
+                
+                embed.addFields({
+                    name: fieldName,
+                    value: chunk.join('\n'),
+                    inline: true
+                });
+            }
+        }
+        
+        // Show excluded heroes (never made it to the pool)
+        if (excludedHeroes.length > 0) {
+            const chunkSize = 20;
+            for (let i = 0; i < excludedHeroes.length; i += chunkSize) {
+                const chunk = excludedHeroes.slice(i, i + chunkSize);
+                const fieldName = i === 0 ? 
+                    `🚫 Excluded from Pool (${excludedHeroes.length} total)` : 
+                    `🚫 Excluded from Pool (continued)`;
+                
+                embed.addFields({
+                    name: fieldName,
+                    value: chunk.join('\n'),
+                    inline: true
+                });
+            }
+        }
+        
+        // Add draft statistics
+        const totalHeroes = filteredDraftOrder.length;
+        const poolSize = session.heroPool.length;
+        const draftedCount = session.draftedHeroes.length;
+        
+        embed.addFields({
+            name: '📊 Draft Statistics',
+            value: `**Total Heroes Available:** ${totalHeroes}\n**Pool Size:** ${poolSize}\n**Heroes Drafted:** ${draftedCount}\n**Heroes Undrafted:** ${undraftedHeroes.length}\n**Heroes Excluded:** ${excludedHeroes.length}`,
+            inline: false
+        });
+        
+    } else {
+        // Draft in progress - show current available heroes and priority
         const availableHeroes = session.getAvailableHeroes();
-        const botPriorityInPool = filteredDraftOrder.filter(hero => availableHeroes.includes(hero));
+        const draftedHeroes = session.draftedHeroes;
+        const allHeroesInPool = session.heroPool;
+        
+        // Show bot priority heroes with strikethrough for drafted ones
+        const botPriorityInPool = filteredDraftOrder.filter(hero => allHeroesInPool.includes(hero));
         
         if (botPriorityInPool.length > 0) {
-            const chunkSize = 15; // Smaller chunks for priority list
+            const chunkSize = 15;
             for (let i = 0; i < botPriorityInPool.length; i += chunkSize) {
                 const chunk = botPriorityInPool.slice(i, i + chunkSize);
+                const formattedChunk = chunk.map(hero => 
+                    draftedHeroes.includes(hero) ? `~~${hero}~~` : hero
+                );
                 const fieldName = i === 0 ? 
                     `⭐ Bot Priority Heroes (${botPriorityInPool.length} total)` : 
                     `⭐ Bot Priority Heroes (continued)`;
                 
                 embed.addFields({
                     name: fieldName,
-                    value: chunk.join('\n'),
+                    value: formattedChunk.join('\n'),
                     inline: true
                 });
             }
         }
         
-        // Show ALL available heroes in multiple fields
-        if (availableHeroes.length > 0) {
-            const chunkSize = 20; // Show 20 heroes per field
-            for (let i = 0; i < availableHeroes.length; i += chunkSize) {
-                const chunk = availableHeroes.slice(i, i + chunkSize);
+        // Show ALL heroes in pool with strikethrough for drafted ones
+        if (allHeroesInPool.length > 0) {
+            const chunkSize = 20;
+            for (let i = 0; i < allHeroesInPool.length; i += chunkSize) {
+                const chunk = allHeroesInPool.slice(i, i + chunkSize);
+                const formattedChunk = chunk.map(hero => 
+                    draftedHeroes.includes(hero) ? `~~${hero}~~` : hero
+                );
                 const fieldName = i === 0 ? 
-                    `🦸 All Available Heroes (${availableHeroes.length} total)` : 
-                    `🦸 All Available Heroes (continued)`;
+                    `🦸 All Heroes in Pool (${allHeroesInPool.length} total)` : 
+                    `🦸 All Heroes in Pool (continued)`;
                 
                 embed.addFields({
                     name: fieldName,
-                    value: chunk.join('\n'),
+                    value: formattedChunk.join('\n'),
                     inline: true
                 });
             }
-        } else {
-            embed.addFields({
-                name: '🦸 Available Heroes',
-                value: 'No heroes remaining',
-                inline: false
-            });
         }
+        
+        // Add available count for clarity
+        embed.addFields({
+            name: '📊 Draft Progress',
+            value: `**Available to Pick:** ${availableHeroes.length}\n**Already Drafted:** ${draftedHeroes.length}\n**Total in Pool:** ${allHeroesInPool.length}`,
+            inline: false
+        });
     }
     
     return embed;
@@ -542,6 +610,15 @@ client.on('interactionCreate', async interaction => {
 
 async function handleSlashCommand(interaction) {
     const { commandName } = interaction;
+    
+    // Check if channel is allowed
+    if (!isChannelAllowed(interaction.channelId)) {
+        await interaction.reply({ 
+            content: '❌ This bot can only be used in designated channels.', 
+            ephemeral: true 
+        });
+        return;
+    }
     
     try {
         switch (commandName) {
@@ -661,18 +738,34 @@ async function handlePickCommand(interaction) {
         await interaction.reply(response);
     }
     
+    // Check if draft completed after player pick
+    if (session.isComplete()) {
+        // Draft just completed, show the final summary
+        setTimeout(async () => {
+            const finalEmbed = createDraftEmbed(session);
+            const finalResponse = { embeds: [finalEmbed] };
+            
+            try {
+                await interaction.editReply(finalResponse);
+                console.log('Final draft summary displayed after player pick');
+            } catch (error) {
+                console.error('Failed to show final summary after player pick:', error);
+            }
+            
+            // Clean up after showing summary
+            setTimeout(() => {
+                draftSessions.delete(channelId);
+                draftMessages.delete(channelId);
+                console.log(`Draft completed and cleaned up for channel: ${channelId}`);
+            }, 10000); // Give 10 seconds to read the summary
+        }, 1000);
+        
+        return;
+    }
+    
     // Continue with AI turns only if it's not the player's turn
     if (!session.isPlayerTurn() && !session.isComplete()) {
         setTimeout(() => processAITurn(interaction, session), 2000);
-    }
-    
-    // Auto-cleanup if draft is complete
-    if (session.isComplete()) {
-        setTimeout(() => {
-            draftSessions.delete(channelId);
-            draftMessages.delete(channelId);
-            console.log(`Draft completed and cleaned up for channel: ${channelId}`);
-        }, 5000); // Clean up after 5 seconds
     }
 }
 
@@ -726,18 +819,34 @@ async function handleButtonInteraction(interaction) {
     
     await interaction.update(response);
     
+    // Check if draft completed after button pick
+    if (session.isComplete()) {
+        // Draft just completed, show the final summary
+        setTimeout(async () => {
+            const finalEmbed = createDraftEmbed(session);
+            const finalResponse = { embeds: [finalEmbed] };
+            
+            try {
+                await interaction.editReply(finalResponse);
+                console.log('Final draft summary displayed after button pick');
+            } catch (error) {
+                console.error('Failed to show final summary after button pick:', error);
+            }
+            
+            // Clean up after showing summary
+            setTimeout(() => {
+                draftSessions.delete(interaction.channelId);
+                draftMessages.delete(interaction.channelId);
+                console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
+            }, 10000); // Give 10 seconds to read the summary
+        }, 1000);
+        
+        return;
+    }
+    
     // Continue with AI turns only if it's not the player's turn
     if (!session.isPlayerTurn() && !session.isComplete()) {
         setTimeout(() => processAITurn(interaction, session), 2000);
-    }
-    
-    // Auto-cleanup if draft is complete
-    if (session.isComplete()) {
-        setTimeout(() => {
-            draftSessions.delete(interaction.channelId);
-            draftMessages.delete(interaction.channelId);
-            console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
-        }, 5000); // Clean up after 5 seconds
     }
 }
 
@@ -765,7 +874,28 @@ async function handleAutocomplete(interaction) {
 }
 
 async function processAITurn(interaction, session) {
-    if (session.isPlayerTurn() || session.isComplete()) return;
+    if (session.isPlayerTurn() || session.isComplete()) {
+        // If draft just completed, show final summary
+        if (session.isComplete()) {
+            const embed = createDraftEmbed(session);
+            const response = { embeds: [embed] };
+            
+            try {
+                await interaction.editReply(response);
+                console.log('Final draft summary displayed');
+            } catch (error) {
+                console.error('Failed to show final summary:', error);
+            }
+            
+            // Clean up after showing summary
+            setTimeout(() => {
+                draftSessions.delete(interaction.channelId);
+                draftMessages.delete(interaction.channelId);
+                console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
+            }, 10000); // Give 10 seconds to read the summary
+        }
+        return;
+    }
     
     const aiPick = session.makeAIPick();
     if (aiPick) {
@@ -782,7 +912,6 @@ async function processAITurn(interaction, session) {
             await interaction.editReply(response);
         } catch (error) {
             console.error('Failed to edit reply during AI turn:', error);
-            // If edit fails, try followUp as last resort
             try {
                 await interaction.followUp(response);
             } catch (followError) {
@@ -790,20 +919,36 @@ async function processAITurn(interaction, session) {
             }
         }
         
-        // Only continue with AI turns if it's still not the player's turn
+        // Check if draft completed after this pick
+        if (session.isComplete()) {
+            // Draft just completed, show the final summary
+            setTimeout(async () => {
+                const finalEmbed = createDraftEmbed(session);
+                const finalResponse = { embeds: [finalEmbed] };
+                
+                try {
+                    await interaction.editReply(finalResponse);
+                    console.log('Final draft summary displayed after AI pick');
+                } catch (error) {
+                    console.error('Failed to show final summary after AI pick:', error);
+                }
+                
+                // Clean up after showing summary
+                setTimeout(() => {
+                    draftSessions.delete(interaction.channelId);
+                    draftMessages.delete(interaction.channelId);
+                    console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
+                }, 10000); // Give 10 seconds to read the summary
+            }, 1000); // Small delay to ensure completion logic processes
+            
+            return;
+        }
+        
+        // Continue with AI turns if draft not complete
         if (!session.isPlayerTurn() && !session.isComplete()) {
             setTimeout(() => processAITurn(interaction, session), 2000);
         } else if (session.isPlayerTurn() && !session.isComplete()) {
             console.log(`Waiting for player turn: ${session.getCurrentTeam()}`);
-        }
-        
-        // Clean up if complete
-        if (session.isComplete()) {
-            setTimeout(() => {
-                draftSessions.delete(interaction.channelId);
-                draftMessages.delete(interaction.channelId);
-                console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
-            }, 5000); // Clean up after 5 seconds
         }
     }
 }
