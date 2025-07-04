@@ -17,7 +17,7 @@ const bannedHeroes = [
 
 const draftOrder = [
     // Ludicrously Powerful
-    'Spider-Ham - Justice', 'Cable - Leadership', 'Cyclops - Leadership', 'Storm - Leadership', 'Magik - Aggression', 'Psylocke - Justice', 'Maria Hill - Leadership',
+    'Spider-Ham - Justice', 'Cable - Leadership', 'Cyclops', 'Storm - Leadership', 'Magik - Aggression', 'Psylocke - Justice', 'Maria Hill - Leadership',
     // Immensely Powerful
     'Bishop - Leadership', 'Spider-Man (Peter Parker) - Justice', 'Doctor Strange - Protection', 'Spider-Man (Miles Morales) - Justice',
     'Captain Marvel - Leadership', 'Scarlet Witch - Justice', 'X-23 - Aggression', 'Deadpool - Pool',
@@ -127,6 +127,9 @@ const teamNamePools = {
 
 // Store active draft sessions
 const draftSessions = new Map();
+
+// Store message references for dynamic updates  
+const draftMessages = new Map(); // channelId -> messageId
 
 // Draft session class
 class DraftSession {
@@ -583,7 +586,10 @@ async function handleDraftCommand(interaction) {
     const response = { embeds: [embed] };
     if (actionRow) response.components = [actionRow];
     
-    await interaction.reply(response);
+    const reply = await interaction.reply(response);
+    
+    // Store the message reference for future updates
+    draftMessages.set(channelId, reply.id);
     
     // Only start AI turns if it's NOT the player's turn initially
     if (!session.isPlayerTurn() && !session.isComplete()) {
@@ -639,7 +645,13 @@ async function handlePickCommand(interaction) {
     const response = { embeds: [embed] };
     if (actionRow) response.components = [actionRow];
     
-    await interaction.reply(response);
+    // Try to edit the original message instead of replying
+    try {
+        await interaction.editReply(response);
+    } catch (error) {
+        // Fallback to reply if edit fails
+        await interaction.reply(response);
+    }
     
     // Continue with AI turns only if it's not the player's turn
     if (!session.isPlayerTurn() && !session.isComplete()) {
@@ -650,6 +662,7 @@ async function handlePickCommand(interaction) {
     if (session.isComplete()) {
         setTimeout(() => {
             draftSessions.delete(channelId);
+            draftMessages.delete(channelId);
             console.log(`Draft completed and cleaned up for channel: ${channelId}`);
         }, 5000); // Clean up after 5 seconds
     }
@@ -714,6 +727,7 @@ async function handleButtonInteraction(interaction) {
     if (session.isComplete()) {
         setTimeout(() => {
             draftSessions.delete(interaction.channelId);
+            draftMessages.delete(interaction.channelId);
             console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
         }, 5000); // Clean up after 5 seconds
     }
@@ -755,23 +769,23 @@ async function processAITurn(interaction, session) {
         const response = { embeds: [embed] };
         if (actionRow) response.components = [actionRow];
         
+        // Always try to edit the original reply instead of creating new messages
         try {
-            await interaction.followUp(response);
+            await interaction.editReply(response);
         } catch (error) {
-            // If followUp fails, try editing the original message
+            console.error('Failed to edit reply during AI turn:', error);
+            // If edit fails, try followUp as last resort
             try {
-                await interaction.editReply(response);
-            } catch (editError) {
-                console.error('Failed to update message:', editError);
+                await interaction.followUp(response);
+            } catch (followError) {
+                console.error('Failed to follow up:', followError);
             }
         }
         
         // Only continue with AI turns if it's still not the player's turn
-        // This prevents the bot from skipping the player's turn
         if (!session.isPlayerTurn() && !session.isComplete()) {
             setTimeout(() => processAITurn(interaction, session), 2000);
         } else if (session.isPlayerTurn() && !session.isComplete()) {
-            // It's now the player's turn - stop AI processing and wait for player input
             console.log(`Waiting for player turn: ${session.getCurrentTeam()}`);
         }
         
@@ -779,6 +793,7 @@ async function processAITurn(interaction, session) {
         if (session.isComplete()) {
             setTimeout(() => {
                 draftSessions.delete(interaction.channelId);
+                draftMessages.delete(interaction.channelId);
                 console.log(`Draft completed and cleaned up for channel: ${interaction.channelId}`);
             }, 5000); // Clean up after 5 seconds
         }
@@ -786,6 +801,6 @@ async function processAITurn(interaction, session) {
 }
 
 // Replace 'YOUR_BOT_TOKEN' with your actual bot token
-client.login(process.env.DISCORD_TOKEN);
+client.login('YOUR_BOT_TOKEN');
 
 module.exports = { client, DraftSession };
