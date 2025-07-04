@@ -221,6 +221,14 @@ class DraftSession {
         return this.heroPool.filter(hero => !this.draftedHeroes.includes(hero));
     }
     
+    getUndraftedHeroes() {
+        return this.heroPool.filter(hero => !this.draftedHeroes.includes(hero));
+    }
+    
+    getExcludedHeroes() {
+        return filteredDraftOrder.filter(hero => !this.heroPool.includes(hero));
+    }
+    
     draftHero(heroName) {
         if (this.draftedHeroes.includes(heroName)) return false;
         
